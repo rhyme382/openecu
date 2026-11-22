@@ -1,0 +1,25 @@
+/* A redistributable synthetic A2L fixture. */
+/begin PROJECT demo "Synthetic project"
+  /begin HEADER "header"
+    ASAM_VERSION 1 71
+  /end HEADER
+  /begin MODULE engine "Synthetic module"
+    /begin MOD_COMMON "common"
+      BYTE_ORDER MSB_LAST
+    /end MOD_COMMON
+    /begin RECORD_LAYOUT RL_U16
+      FNC_VALUES 1 UWORD ROW_DIR DIRECT
+    /end RECORD_LAYOUT
+    /begin COMPU_METHOD CM_PERCENT "Percent conversion" IDENTICAL "%6.2" "%"
+    /end COMPU_METHOD
+    /begin AXIS_PTS rpm_axis "Engine speed" 0x2000 NO_INPUT_QUANTITY RL_U16 0 CM_PERCENT 16 0 8000
+    /end AXIS_PTS
+    /begin CHARACTERISTIC torque_limit "Torque limit" VALUE 0x1000 RL_U16 0 CM_PERCENT 0 500
+      /begin AXIS_DESCR
+        AXIS_PTS_REF rpm_axis
+      /end AXIS_DESCR
+    /end CHARACTERISTIC
+    /begin MEASUREMENT rpm "Engine speed" UWORD CM_PERCENT 1 0 0 8000
+    /end MEASUREMENT
+  /end MODULE
+/end PROJECT
