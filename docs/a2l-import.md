@@ -275,3 +275,74 @@ sans absorber les mots-clés internes.
   identique au texte) ; un document sérialisé altéré est rejeté.
 - Les `AXIS_DESCR` ne sont projetés que dans `CHARACTERISTIC` ; aucun lien n'est
   établi avec les éléments du `RECORD_LAYOUT` (phase suivante).
+
+## Extension T002-C2.1 : planification RECORD_LAYOUT (sans décodage)
+
+Module `openecu_definitions::record_layout`. Il ne lit aucun binaire, ne décode
+ni axe ni `CURVE`/`MAP`, et ne modifie ni l'importeur, ni `.oedef` v1, ni
+`openecu-calibration`.
+
+### API
+
+- `RecordPlan::from_layout(&RecordLayout)` : conservée pour compatibilité mais
+  refuse de construire un plan, car le contexte `MOD_COMMON` est inconnu.
+  Utiliser `RecordPlan::from_layout_with_mod_common(&RecordLayout, Option<&ModCommon>)` ;
+  passer `module.mod_common.as_ref()` (y compris `None` lorsque l'absence a été
+  vérifiée) afin que les `ALIGNMENT_*` ne soient jamais ignorés.
+- `RecordPlan::resolve(&PointCounts)` → `ResolvedRecord` (`Placement` par
+  `ElementKind` : `NoAxisPts(axe)`, `AxisPts(axe)`, `FncValues`,
+  `Identification`, plus `total_size`). Usage prévu : lire `NO_AXIS_PTS_X` à son
+  `static_offset`, fournir le compte, puis placer `AXIS_PTS_X` et `FNC_VALUES`.
+- `PointCounts::{with_axis, with_fnc_values, fnc_items_from_dimensions}` ;
+  `FIX_NO_AXIS_PTS_*` fournit le compte d'un axe (conflit → `ConflictingCounts`).
+- `checked_add`, `checked_mul`, `align_up`, `to_usize`, `Placement::range()`.
+- `RecordPlan::check_base_address` : l'adresse de début doit respecter
+  l'alignement le plus strict (`required_base_alignment`).
+- `AxisError::verdict()` → `LayoutVerdict::{Malformed, Unsupported, Ambiguous}`.
+  Une disposition confirmée est un `Ok(RecordPlan)`.
+
+### Règles vérifiées
+
+- Positions ≥ 1, uniques, contiguës `1..=n` (hors `FIX_NO_AXIS_PTS_*`, sans
+  position). Doublon, trou, position 0, champ manquant → `Malformed`.
+- Éléments placés : `FNC_VALUES`, `AXIS_PTS_{X,Y,Z,4,5}`, `NO_AXIS_PTS_*`,
+  `IDENTIFICATION`, adressage `DIRECT` uniquement. Tout autre élément ou mot-clé
+  (`AXIS_RESCALE_*`, `SRC_ADDR_*`, `OFFSET_*`, `RESERVED`,
+  `STATIC_RECORD_LAYOUT`…), type inconnu ou adressage indirect → `Unsupported`.
+- Types de taille fixe : `UBYTE/SBYTE` 1, `UWORD/SWORD/FLOAT16_IEEE` 2,
+  `ULONG/SLONG/FLOAT32_IEEE` 4, `A_UINT64/A_INT64/FLOAT64_IEEE` 8.
+- Arithmétique `u64` contrôlée ; conversion `usize` contrôlée.
+- Arity exacte des éléments `RECORD_LAYOUT` vérifiée ; arguments supplémentaires
+  → `Malformed`. Les modes connus (`ROW_DIR`/`COLUMN_DIR` et `INDEX_INCR`) sont
+  conservés dans le plan ; `INDEX_DECR` et tout mode inconnu sont `Unsupported`
+  (la valeur d'origine reste préservée par l'importeur A2L).
+- Les déclarations simultanées `NO_AXIS_PTS_*` et `FIX_NO_AXIS_PTS_*` sont
+  refusées comme ambiguës. Dimensions, comptes et taille totale sont plafonnés
+  de façon conservatrice avant les multiplications et conversions.
+
+### Hypothèses
+
+- **Aucune règle de remplissage n'est supposée.** Les offsets sont ceux d'un
+  enregistrement compact, accepté uniquement si chaque élément tombe déjà sur un
+  multiple de son alignement exigé (valeur `ALIGNMENT_*` déclarée pour son type,
+  sinon son alignement naturel = sa taille). Sinon `AmbiguousPadding` (avec
+  l'offset aligné à titre indicatif) : le planificateur ne choisit pas.
+- Les positions ASAP2 sont supposées former un ordre contigu à partir de 1
+  (connaissance d'ASAP2, texte normatif non revérifié) ; ce n'est pas présenté
+  ici comme une règle normative vérifiée.
+- Un compte nul est accepté (taille 0).
+
+### Limites
+
+- Les éléments inconnus ou non modélisés rendent le layout `Unsupported` : aucune
+  taille totale partielle n'est produite.
+- Les offsets situés après un élément dépendant d'un compte ne sont connus
+  qu'après `resolve` ; l'alignement y est alors revérifié.
+- `ROW_DIR`/`COLUMN_DIR` et `INDEX_INCR` sont seulement préservés et validés
+  lexicalement ; `INDEX_DECR` reste préservé par l'importeur mais est rejeté par
+  ce planificateur. Aucun sens d'indexation n'est interprété ici.
+- Le compte de `FNC_VALUES` (axes, `MATRIX_DIM`) est calculé par l'appelant ;
+  `fnc_items_from_dimensions` ne fait que le produit contrôlé.
+- Les alignements naturels et les positions contiguës sont des hypothèses
+  conservatrices de cette tranche, pas des règles ASAP2 vérifiées dans le texte
+  normatif. Aucun remplissage n'est ajouté automatiquement.

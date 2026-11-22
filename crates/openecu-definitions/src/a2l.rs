@@ -838,6 +838,10 @@ impl LayoutShape {
             Self::FixedCount => 1,
         }
     }
+
+    fn exact_args(self) -> usize {
+        self.min_args()
+    }
 }
 fn record_layout_shape(keyword: &str) -> Option<LayoutShape> {
     match keyword {
@@ -1222,6 +1226,19 @@ fn record_layout_elements(b: &Block, ds: &mut Vec<Diagnostic>) -> Vec<RecordLayo
                 ds,
                 Severity::Error,
                 format!("{} is incomplete", item.keyword),
+                item_loc(item),
+            );
+        }
+        if item.values.len() > shape.exact_args() {
+            diagnostic(
+                ds,
+                Severity::Error,
+                format!(
+                    "{} has too many arguments: expected {}, found {}",
+                    item.keyword,
+                    shape.exact_args(),
+                    item.values.len()
+                ),
                 item_loc(item),
             );
         }

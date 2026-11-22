@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 pub mod a2l;
+pub mod record_layout;
 pub use a2l::{
     A2lDocument, A2lImportError, Diagnostic, RawBlock, RawBlockId, RawElement, RawItem, Severity,
     SourceLocation, parse_a2l, parse_a2l_file,
