@@ -1,0 +1,15 @@
+/target/
+/node_modules/
+/dist/
+/build/
+.env
+.env.*
+!.env.example
+*.log
+*.bin
+*.hex
+*.s19
+*.a2l
+*.damos
+*.ols
+*.kp
