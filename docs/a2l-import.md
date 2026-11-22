@@ -181,3 +181,97 @@ déclaration incomplète. Sans information grammaticale supplémentaire, un mot-
 fournisseur inconnu ne peut pas toujours être distingué universellement d'un
 argument positionnel. Les extensions fournisseur conservent leurs arguments sur
 leur ligne de déclaration et restent non interprétées.
+
+## Extension T002-C1 : axes et layouts typés (sans décodage CURVE/MAP)
+
+Cette tranche enrichit uniquement le parseur et le modèle ; aucun décodage de
+`CURVE`/`MAP` n'est ajouté, et `openecu-calibration` rejette toujours ces types.
+
+### Arguments positionnels audités
+
+Source : connaissance de la spécification ASAP2 1.x, non revérifiée sur le
+texte normatif (voir Limites).
+
+| Bloc | Arguments positionnels |
+|------|------------------------|
+| `AXIS_DESCR` | Attribute, InputQuantity, Conversion, MaxAxisPoints, LowerLimit, UpperLimit (6) |
+| `AXIS_PTS` | Name, LongIdentifier, Address, InputQuantity, Deposit (layout), MaxDiff, Conversion, MaxAxisPoints, LowerLimit, UpperLimit (10, inchangé) |
+| `CHARACTERISTIC` | Name, LongIdentifier, Type, Address, Deposit, MaxDiff, Conversion, LowerLimit, UpperLimit (9, inchangé) |
+| `RECORD_LAYOUT` | Name (1) |
+| `MOD_COMMON` | Comment (1) |
+
+`AXIS_DESCR` avait une arité 0 (arguments limités à la ligne de déclaration) ;
+elle est maintenant de 6 : les arguments peuvent s'étendre sur plusieurs lignes
+sans absorber les mots-clés internes.
+
+### Mots-clés internes ajoutés
+
+- `AXIS_DESCR` : `BYTE_ORDER`, `CURVE_AXIS_REF`, `DEPOSIT`, `EXTENDED_LIMITS`,
+  `FIX_AXIS_PAR`, `FIX_AXIS_PAR_DIST`, `FIX_AXIS_PAR_LIST`, `FORMAT`, `MAX_GRAD`,
+  `MONOTONY`, `PHYS_UNIT`, `READ_ONLY`, `STEP_SIZE`. `MAX_AXIS_PTS` n'est pas un
+  mot-clé ASAP2 d'`AXIS_DESCR` (le maximum est le 4ᵉ argument) ; il reste
+  reconnu uniquement parce que les fixtures T002-A/B l'utilisent.
+- `CHARACTERISTIC` : `MATRIX_DIM`, `DISCRETE` (`MATRIX_DIM` était auparavant
+  signalé `Unsupported` à tort).
+- `AXIS_PTS` : `MONOTONY`.
+- `MOD_COMMON` : `ALIGNMENT_*`, `DATA_SIZE`, `DEPOSIT`, `S_REC_LAYOUT`.
+- `RECORD_LAYOUT` : `ALIGNMENT_*`, `STATIC_RECORD_LAYOUT` et, pour chacun des
+  axes `X`, `Y`, `Z`, `4`, `5` : `AXIS_PTS_`, `AXIS_RESCALE_`,
+  `FIX_NO_AXIS_PTS_`, `DIST_OP_`, `NO_AXIS_PTS_`, `NO_RESCALE_`, `OFFSET_`,
+  `RIP_ADDR_`, `SHIFT_OP_`, `SRC_ADDR_` ; plus `FNC_VALUES`, `IDENTIFICATION`,
+  `RESERVED`, `RIP_ADDR_W`.
+
+### Modèle additif
+
+- `Characteristic::axis_descriptions: Vec<AxisDescription>` : attribut
+  (`AxisAttribute::{Std, Fix, Com, Res, Curve, Unknown(texte)}`), grandeur
+  d'entrée, conversion, `max_axis_points`, limites (`A2lNumber` : valeur
+  finie + texte source), `AXIS_PTS_REF` (axe partagé), `CURVE_AXIS_REF`,
+  `FIX_AXIS_PAR`, `FIX_AXIS_PAR_DIST`, `FIX_AXIS_PAR_LIST`, unité, format,
+  monotonie, `READ_ONLY`, arguments bruts, positions source des références et
+  `raw_block`. Toute valeur absente reste `None`.
+- `Characteristic::dimensions` et `axis_references` gardent leur sens T002-B :
+  `dimensions` ne provient toujours que du mot-clé historique `MAX_AXIS_PTS`
+  (le maximum positionnel est dans `AxisDescription::max_axis_points`).
+- `AxisPoints` : `input_quantity`, `lower_limit`, `upper_limit`, `phys_unit`.
+- `RecordLayout::elements: Vec<RecordLayoutElement>` : mot-clé, position, type
+  de données, `index_mode` (`FNC_VALUES`), `index_increment` (`AXIS_PTS_*`,
+  `AXIS_RESCALE_*`), type d'adressage, paires de rééchelonnage, nombre de
+  points fixe, arguments et positions source, dans l'ordre source. Les
+  positions ne sont ni triées ni vérifiées (unicité, continuité).
+- Les nouveaux champs sont `#[serde(default)]`. `.oedef` v1 est inchangé.
+
+### Diagnostics
+
+- `AXIS_DESCR` sans aucun argument (forme historique des fixtures) :
+  `Warning`, champs positionnels `None`. Entre 1 et 5 arguments : `Error`.
+- Attribut inconnu : conservé tel quel (`Unknown`), `Unsupported`.
+- `COM_AXIS` sans `AXIS_PTS_REF` : `Warning` seulement (obligatoriété non
+  vérifiée) ; aucun axe n'est supposé.
+- Conversion d'un `AXIS_DESCR` absente (hors `NO_COMPU_METHOD`), `AXIS_PTS_REF`
+  ou `CURVE_AXIS_REF` absents : `Error`, à l'emplacement de la référence.
+- Élément de `RECORD_LAYOUT` incomplet ou position illisible : `Error`, mais
+  l'élément est conservé avec les champs lisibles ; `RECORD_LAYOUT` sans nom :
+  `Error`.
+- Mots-clés et blocs inconnus : conservés dans `extra`/`raw_blocks`, avec un
+  diagnostic `Unsupported` unique.
+
+### Limites et incertitudes
+
+- Schémas d'arguments issus de la connaissance d'ASAP2 1.x, non comparés au
+  texte normatif ; en particulier les types signé/non signé de `FIX_AXIS_PAR*`
+  (lus `i64`, `i64`, `u32`) et le caractère obligatoire de `AXIS_PTS_REF`.
+- `InputQuantity` n'est pas validée contre les `MEASUREMENT`.
+- `AXIS_DESCR` partiel suivi d'un mot-clé fournisseur inconnu sur la ligne
+  suivante : pour les arguments numériques (4ᵉ à 6ᵉ : points max., limites
+  inférieure/supérieure), un jeton non numérique placé sur une ligne ultérieure
+  n'est pas absorbé ; il devient un mot-clé (`Unsupported`) et la déclaration est
+  signalée incomplète. Pour les arguments non numériques (attribut, grandeur
+  d'entrée, conversion), la grammaire ne permet pas de distinguer un identifiant
+  d'un mot-clé fournisseur : le jeton est alors absorbé comme argument (aucune
+  donnée perdue, mais mal attribuée) — limite connue, non devinée. Un jeton
+  non numérique sur la même ligne reste une erreur « invalid number ».
+- `A2lNumber` : la désérialisation revalide l'invariant (texte fini, valeur
+  identique au texte) ; un document sérialisé altéré est rejeté.
+- Les `AXIS_DESCR` ne sont projetés que dans `CHARACTERISTIC` ; aucun lien n'est
+  établi avec les éléments du `RECORD_LAYOUT` (phase suivante).

@@ -7,6 +7,9 @@ pub use a2l::{
     A2lDocument, A2lImportError, Diagnostic, RawBlock, RawBlockId, RawElement, RawItem, Severity,
     SourceLocation, parse_a2l, parse_a2l_file,
 };
+pub use a2l::{
+    A2lNumber, AxisAttribute, AxisDescription, FixAxisPar, FixAxisParDist, RecordLayoutElement,
+};
 pub const OEDF_V1: &str = "1.0";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DefinitionEcu {

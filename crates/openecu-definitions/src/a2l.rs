@@ -117,6 +117,10 @@ pub struct Characteristic {
     pub dimensions: Vec<u32>,
     pub axis_references: Vec<String>,
     pub axis_reference_sources: Vec<SourceLocation>,
+    /// Typed projection of every `AXIS_DESCR` child, in source order (T002-C1).
+    /// Additive: `dimensions` and `axis_references` keep their T002-B meaning.
+    #[serde(default)]
+    pub axis_descriptions: Vec<AxisDescription>,
     pub extra: Vec<RawItem>,
     pub raw_blocks: Vec<RawBlockId>,
     pub raw_block: RawBlockId,
@@ -132,6 +136,16 @@ pub struct AxisPoints {
     pub layout_reference: Option<String>,
     pub conversion_reference: Option<String>,
     pub max_axis_points: Option<u32>,
+    /// ASAP2 `InputQuantity` (positional argument 4), verbatim.
+    #[serde(default)]
+    pub input_quantity: Option<String>,
+    #[serde(default)]
+    pub lower_limit: Option<A2lNumber>,
+    #[serde(default)]
+    pub upper_limit: Option<A2lNumber>,
+    /// Value of the optional `PHYS_UNIT` keyword.
+    #[serde(default)]
+    pub phys_unit: Option<String>,
     pub extra: Vec<RawItem>,
     pub raw_blocks: Vec<RawBlockId>,
     pub raw_block: RawBlockId,
@@ -154,6 +168,10 @@ pub struct CompuMethod {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordLayout {
     pub name: String,
+    /// Typed projection of the recognized data elements, in source order
+    /// (T002-C1). Unknown keywords are not listed here; they stay in `extra`.
+    #[serde(default)]
+    pub elements: Vec<RecordLayoutElement>,
     pub extra: Vec<RawItem>,
     pub raw_blocks: Vec<RawBlockId>,
     pub raw_block: RawBlockId,
@@ -171,6 +189,146 @@ pub struct Measurement {
     pub raw_block: RawBlockId,
     pub source: SourceLocation,
     pub conversion_reference_source: Option<SourceLocation>,
+}
+/// A finite number from the A2L source, keeping its original spelling.
+/// Only finite values can be constructed from source text.
+///
+/// Deserialization re-validates the invariant: `text` must be a finite number
+/// and `value` must be exactly what `text` parses to. This keeps the derived
+/// `PartialEq` reflexive, so `Eq` is sound (no NaN can ever be stored).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "A2lNumberRepr")]
+pub struct A2lNumber {
+    value: f64,
+    text: String,
+}
+#[derive(Deserialize)]
+struct A2lNumberRepr {
+    value: f64,
+    text: String,
+}
+impl TryFrom<A2lNumberRepr> for A2lNumber {
+    type Error = String;
+    fn try_from(repr: A2lNumberRepr) -> Result<Self, Self::Error> {
+        let parsed = Self::parse(&repr.text)
+            .ok_or_else(|| format!("`{}` is not a finite A2L number", repr.text))?;
+        if parsed.value.to_bits() != repr.value.to_bits() {
+            return Err(format!(
+                "value {} does not match its text `{}`",
+                repr.value, repr.text
+            ));
+        }
+        Ok(parsed)
+    }
+}
+impl Eq for A2lNumber {}
+impl A2lNumber {
+    /// Returns `None` for text that is not a finite decimal number.
+    pub fn parse(text: &str) -> Option<Self> {
+        text.parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite())
+            .map(|value| Self {
+                value,
+                text: text.to_owned(),
+            })
+    }
+    pub fn value(&self) -> f64 {
+        self.value
+    }
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+/// ASAP2 `AXIS_DESCR` attribute (first positional argument).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AxisAttribute {
+    Std,
+    Fix,
+    Com,
+    Res,
+    Curve,
+    /// Text not in the recognized set; preserved verbatim, never guessed.
+    Unknown(String),
+}
+impl AxisAttribute {
+    fn from_text(text: &str) -> Self {
+        match text {
+            "STD_AXIS" => Self::Std,
+            "FIX_AXIS" => Self::Fix,
+            "COM_AXIS" => Self::Com,
+            "RES_AXIS" => Self::Res,
+            "CURVE_AXIS" => Self::Curve,
+            other => Self::Unknown(other.to_owned()),
+        }
+    }
+}
+/// `FIX_AXIS_PAR Offset Shift Numberapo`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FixAxisPar {
+    pub offset: i64,
+    pub shift: i64,
+    pub number_of_points: u32,
+}
+/// `FIX_AXIS_PAR_DIST Offset Distance Numberapo`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FixAxisParDist {
+    pub offset: i64,
+    pub distance: i64,
+    pub number_of_points: u32,
+}
+/// Typed view of one `AXIS_DESCR`. Every field that the source does not
+/// declare is `None` / empty; nothing is inferred.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AxisDescription {
+    pub attribute: Option<AxisAttribute>,
+    pub input_quantity: Option<String>,
+    pub conversion_reference: Option<String>,
+    pub max_axis_points: Option<u32>,
+    pub lower_limit: Option<A2lNumber>,
+    pub upper_limit: Option<A2lNumber>,
+    pub axis_pts_ref: Option<String>,
+    pub curve_axis_ref: Option<String>,
+    pub byte_order: Option<String>,
+    pub deposit: Option<String>,
+    pub format: Option<String>,
+    pub phys_unit: Option<String>,
+    pub monotony: Option<String>,
+    pub read_only: bool,
+    pub fix_axis_par: Option<FixAxisPar>,
+    pub fix_axis_par_dist: Option<FixAxisParDist>,
+    pub fix_axis_par_list: Option<Vec<A2lNumber>>,
+    /// Positional arguments exactly as written, with their locations.
+    pub positional_arguments: Vec<String>,
+    pub argument_locations: Vec<SourceLocation>,
+    pub conversion_reference_source: Option<SourceLocation>,
+    pub max_axis_points_source: Option<SourceLocation>,
+    pub axis_pts_ref_source: Option<SourceLocation>,
+    pub curve_axis_ref_source: Option<SourceLocation>,
+    pub extra: Vec<RawItem>,
+    pub raw_blocks: Vec<RawBlockId>,
+    pub raw_block: RawBlockId,
+    pub source: SourceLocation,
+}
+/// One recognized data element of a `RECORD_LAYOUT`.
+///
+/// `position` is the ASAP2 position argument as written (no ordering or
+/// uniqueness rule is enforced). `data_type` is the verbatim second argument;
+/// for `RESERVED` it holds the data-size word. `index_mode` is only set for
+/// `FNC_VALUES`, `index_increment` only for `AXIS_PTS_*` / `AXIS_RESCALE_*`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordLayoutElement {
+    pub keyword: String,
+    pub position: Option<u32>,
+    pub data_type: Option<String>,
+    pub index_mode: Option<String>,
+    pub index_increment: Option<String>,
+    pub address_type: Option<String>,
+    pub max_rescale_pairs: Option<u32>,
+    pub fixed_axis_points: Option<u32>,
+    pub arguments: Vec<String>,
+    pub argument_locations: Vec<SourceLocation>,
+    pub source: SourceLocation,
 }
 #[derive(Debug, Error)]
 pub enum A2lImportError {
@@ -418,11 +576,19 @@ impl Parser {
                             args.push(self.next("expected positional argument")?);
                         }
                     } else {
-                        for _ in 0..count {
+                        for index in 0..count {
+                            let previous_line =
+                                args.last().map_or(keyword.line, |a: &Token| a.line);
                             if self.current().is_some_and(|x| {
                                 x.text != "/begin"
                                     && x.text != "/end"
                                     && !is_internal_keyword(&keyword.text, &x.text)
+                                    && !is_foreign_in_numeric_slot(
+                                        &keyword.text,
+                                        index,
+                                        x,
+                                        previous_line,
+                                    )
                             }) {
                                 args.push(self.next("expected positional argument")?)
                             } else {
@@ -501,11 +667,32 @@ fn arity(k: &str) -> usize {
     match k {
         "PROJECT" | "MODULE" => 2,
         "MOD_COMMON" | "RECORD_LAYOUT" => 1,
+        "AXIS_DESCR" => 6,
         "CHARACTERISTIC" => 9,
         "AXIS_PTS" => 10,
         "COMPU_METHOD" => 5,
         "MEASUREMENT" => 8,
         _ => 0,
+    }
+}
+/// `AXIS_DESCR` slots 3..=5 (max points, lower, upper) are numeric. A token on
+/// a later line than the previous argument that is not a number there cannot
+/// be a valid argument, so it is the start of a (vendor) keyword. Same-line
+/// tokens keep being consumed so typos still yield "invalid number" errors;
+/// non-numeric slots (attribute, quantity, conversion) stay ambiguous.
+fn is_foreign_in_numeric_slot(
+    block: &str,
+    index: usize,
+    token: &Token,
+    previous_line: usize,
+) -> bool {
+    if block != "AXIS_DESCR" || token.line == previous_line {
+        return false;
+    }
+    match index {
+        3 => token.text.parse::<u32>().is_err(),
+        4 | 5 => A2lNumber::parse(&token.text).is_none(),
+        _ => false,
     }
 }
 fn is_internal_keyword(block: &str, keyword: &str) -> bool {
@@ -518,6 +705,8 @@ fn is_internal_keyword(block: &str, keyword: &str) -> bool {
                 | "CALIBRATION_ACCESS"
                 | "COMPU_TAB_REF"
                 | "COMPARISON_QUANTITY"
+                | "DISCRETE"
+                | "MATRIX_DIM"
                 | "DISPLAY_IDENTIFIER"
                 | "ECU_ADDRESS_EXTENSION"
                 | "EXTENDED_LIMITS"
@@ -545,6 +734,7 @@ fn is_internal_keyword(block: &str, keyword: &str) -> bool {
                 | "FUNCTION_LIST"
                 | "GUARD_RAILS"
                 | "MAX_GRAD"
+                | "MONOTONY"
                 | "PHYS_UNIT"
                 | "READ_ONLY"
                 | "REF_MEMORY_SEGMENT"
@@ -577,37 +767,104 @@ fn is_internal_keyword(block: &str, keyword: &str) -> bool {
                 | "REF_UNIT"
                 | "STATUS_STRING_REF"
         ),
-        "RECORD_LAYOUT" => matches!(
+        "RECORD_LAYOUT" => {
+            record_layout_shape(keyword).is_some()
+                || is_alignment(keyword)
+                || keyword == "STATIC_RECORD_LAYOUT"
+        }
+        // `MAX_AXIS_PTS` is not an ASAP2 AXIS_DESCR keyword (the maximum is the
+        // 4th positional argument); it is kept because T002-A/B fixtures use it.
+        "AXIS_DESCR" => matches!(
             keyword,
-            "AXIS_PTS_4"
-                | "AXIS_PTS_5"
-                | "AXIS_PTS_X"
-                | "AXIS_PTS_Y"
-                | "AXIS_PTS_Z"
-                | "FNC_VALUES"
-                | "IDENTIFICATION"
-                | "NO_AXIS_PTS_4"
-                | "NO_AXIS_PTS_5"
-                | "NO_AXIS_PTS_X"
-                | "NO_AXIS_PTS_Y"
-                | "NO_AXIS_PTS_Z"
-                | "RESERVED"
-                | "RIP_ADDR_4"
-                | "RIP_ADDR_5"
-                | "RIP_ADDR_W"
-                | "SHIFT_OP_X"
-                | "SHIFT_OP_Y"
-                | "SHIFT_OP_Z"
-                | "SRC_ADDR_4"
-                | "SRC_ADDR_5"
-                | "SRC_ADDR_X"
-                | "SRC_ADDR_Y"
-                | "SRC_ADDR_Z"
+            "AXIS_PTS_REF"
+                | "BYTE_ORDER"
+                | "CURVE_AXIS_REF"
+                | "DEPOSIT"
+                | "EXTENDED_LIMITS"
+                | "FIX_AXIS_PAR"
+                | "FIX_AXIS_PAR_DIST"
+                | "FIX_AXIS_PAR_LIST"
+                | "FORMAT"
+                | "MAX_AXIS_PTS"
+                | "MAX_GRAD"
+                | "MONOTONY"
+                | "PHYS_UNIT"
+                | "READ_ONLY"
+                | "STEP_SIZE"
         ),
-        "AXIS_DESCR" => matches!(keyword, "AXIS_PTS_REF" | "MAX_AXIS_PTS"),
-        "MOD_COMMON" => keyword == "BYTE_ORDER",
+        "MOD_COMMON" => {
+            is_alignment(keyword)
+                || matches!(
+                    keyword,
+                    "BYTE_ORDER" | "DATA_SIZE" | "DEPOSIT" | "S_REC_LAYOUT"
+                )
+        }
         _ => false,
     }
+}
+fn is_alignment(keyword: &str) -> bool {
+    matches!(
+        keyword,
+        "ALIGNMENT_BYTE"
+            | "ALIGNMENT_WORD"
+            | "ALIGNMENT_LONG"
+            | "ALIGNMENT_INT64"
+            | "ALIGNMENT_FLOAT16_IEEE"
+            | "ALIGNMENT_FLOAT32_IEEE"
+            | "ALIGNMENT_FLOAT64_IEEE"
+    )
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LayoutShape {
+    /// `Position Datatype IndexMode Addresstype`
+    Fnc,
+    /// `Position Datatype IndexIncr Addressing`
+    AxisPts,
+    /// `Position Datatype MaxNoOfRescalePairs IndexIncr Addressing`
+    Rescale,
+    /// `Position Datatype`
+    PositionType,
+    /// `Position DataSize`
+    Reserved,
+    /// `NumberOfAxisPoints`
+    FixedCount,
+}
+impl LayoutShape {
+    fn min_args(self) -> usize {
+        match self {
+            Self::Fnc | Self::AxisPts => 4,
+            Self::Rescale => 5,
+            Self::PositionType | Self::Reserved => 2,
+            Self::FixedCount => 1,
+        }
+    }
+}
+fn record_layout_shape(keyword: &str) -> Option<LayoutShape> {
+    match keyword {
+        "FNC_VALUES" => return Some(LayoutShape::Fnc),
+        "IDENTIFICATION" | "RIP_ADDR_W" => return Some(LayoutShape::PositionType),
+        "RESERVED" => return Some(LayoutShape::Reserved),
+        _ => {}
+    }
+    const AXES: [&str; 5] = ["X", "Y", "Z", "4", "5"];
+    const FAMILIES: [(&str, LayoutShape); 10] = [
+        ("AXIS_PTS_", LayoutShape::AxisPts),
+        ("AXIS_RESCALE_", LayoutShape::Rescale),
+        ("FIX_NO_AXIS_PTS_", LayoutShape::FixedCount),
+        ("DIST_OP_", LayoutShape::PositionType),
+        ("NO_AXIS_PTS_", LayoutShape::PositionType),
+        ("NO_RESCALE_", LayoutShape::PositionType),
+        ("OFFSET_", LayoutShape::PositionType),
+        ("RIP_ADDR_", LayoutShape::PositionType),
+        ("SHIFT_OP_", LayoutShape::PositionType),
+        ("SRC_ADDR_", LayoutShape::PositionType),
+    ];
+    FAMILIES.into_iter().find_map(|(prefix, shape)| {
+        keyword
+            .strip_prefix(prefix)
+            .filter(|axis| AXES.contains(axis))
+            .map(|_| shape)
+    })
 }
 fn children(b: &Block) -> impl Iterator<Item = &Block> {
     b.elements.iter().filter_map(|element| match element {
@@ -791,6 +1048,228 @@ fn u32_item(i: &RawItem, ds: &mut Vec<Diagnostic>) -> Option<u32> {
         .ok()
 }
 
+fn u32_at(text: &str, at: SourceLocation, ds: &mut Vec<Diagnostic>) -> Option<u32> {
+    let x = u64_value(text, at, ds)?;
+    u32::try_from(x)
+        .map_err(|_| {
+            diagnostic(
+                ds,
+                Severity::Error,
+                format!("unsigned number outside u32 range `{text}`"),
+                at,
+            )
+        })
+        .ok()
+}
+fn i64_at(text: &str, at: SourceLocation, ds: &mut Vec<Diagnostic>) -> Option<i64> {
+    text.parse().ok().or_else(|| {
+        diagnostic(ds, Severity::Error, format!("invalid integer `{text}`"), at);
+        None
+    })
+}
+fn number_at(text: &str, at: SourceLocation, ds: &mut Vec<Diagnostic>) -> Option<A2lNumber> {
+    let n = A2lNumber::parse(text);
+    if n.is_none() {
+        diagnostic(
+            ds,
+            Severity::Error,
+            format!("invalid finite number `{text}`"),
+            at,
+        );
+    }
+    n
+}
+fn number_arg(b: &Block, n: usize, ds: &mut Vec<Diagnostic>) -> Option<A2lNumber> {
+    let (text, at) = arg(b, n).zip(arg_loc(b, n))?;
+    number_at(&text, at, ds)
+}
+fn item_loc(i: &RawItem) -> SourceLocation {
+    SourceLocation {
+        line: i.line,
+        column: i.column,
+    }
+}
+fn value_loc(i: &RawItem, n: usize) -> SourceLocation {
+    i.value_locations.get(n).copied().unwrap_or(item_loc(i))
+}
+fn first_item<'a>(items: &'a [RawItem], key: &str) -> Option<&'a RawItem> {
+    items.iter().find(|x| x.keyword == key)
+}
+/// Three-value `FIX_AXIS_PAR*` item: signed, signed, unsigned (u32).
+fn fix_triple(items: &[RawItem], key: &str, ds: &mut Vec<Diagnostic>) -> Option<(i64, i64, u32)> {
+    let item = first_item(items, key)?;
+    if item.values.len() < 3 {
+        diagnostic(
+            ds,
+            Severity::Error,
+            format!("{key} is incomplete"),
+            item_loc(item),
+        );
+        return None;
+    }
+    let a = i64_at(&item.values[0], value_loc(item, 0), ds);
+    let b = i64_at(&item.values[1], value_loc(item, 1), ds);
+    let c = u32_at(&item.values[2], value_loc(item, 2), ds);
+    Some((a?, b?, c?))
+}
+fn axis_description(b: &Block, ds: &mut Vec<Diagnostic>, store: &[RawBlock]) -> AxisDescription {
+    if b.args.is_empty() {
+        diagnostic(
+            ds,
+            Severity::Warning,
+            "AXIS_DESCR has no positional arguments (legacy form); attribute, quantity, conversion and limits are unavailable",
+            b.keyword.loc(),
+        );
+    } else {
+        incomplete(b, 6, "AXIS_DESCR", ds);
+    }
+    let attribute = arg(b, 0).map(|t| AxisAttribute::from_text(&t));
+    if let (Some(AxisAttribute::Unknown(text)), Some(at)) = (&attribute, arg_loc(b, 0)) {
+        diagnostic(
+            ds,
+            Severity::Unsupported,
+            format!("unrecognized axis attribute `{text}` preserved verbatim"),
+            at,
+        );
+    }
+    let max_axis_points = arg(b, 3)
+        .zip(arg_loc(b, 3))
+        .and_then(|(t, at)| u32_at(&t, at, ds));
+    let lower_limit = number_arg(b, 4, ds);
+    let upper_limit = number_arg(b, 5, ds);
+    let text_item = |key: &str| value(&b.items, key);
+    let axis_pts_ref_item = first_item(&b.items, "AXIS_PTS_REF").filter(|i| !i.values.is_empty());
+    let curve_ref_item = first_item(&b.items, "CURVE_AXIS_REF").filter(|i| !i.values.is_empty());
+    if attribute == Some(AxisAttribute::Com) && axis_pts_ref_item.is_none() {
+        diagnostic(
+            ds,
+            Severity::Warning,
+            "COM_AXIS declares no AXIS_PTS_REF; no shared axis is assumed",
+            b.keyword.loc(),
+        );
+    }
+    let fix_axis_par =
+        fix_triple(&b.items, "FIX_AXIS_PAR", ds).map(|(offset, shift, number_of_points)| {
+            FixAxisPar {
+                offset,
+                shift,
+                number_of_points,
+            }
+        });
+    let fix_axis_par_dist = fix_triple(&b.items, "FIX_AXIS_PAR_DIST", ds).map(
+        |(offset, distance, number_of_points)| FixAxisParDist {
+            offset,
+            distance,
+            number_of_points,
+        },
+    );
+    let fix_axis_par_list = first_item(&b.items, "FIX_AXIS_PAR_LIST").and_then(|item| {
+        if item.values.is_empty() {
+            diagnostic(
+                ds,
+                Severity::Error,
+                "FIX_AXIS_PAR_LIST is incomplete",
+                item_loc(item),
+            );
+            return None;
+        }
+        let parsed: Vec<_> = item
+            .values
+            .iter()
+            .enumerate()
+            .map(|(n, t)| number_at(t, value_loc(item, n), ds))
+            .collect();
+        parsed.into_iter().collect()
+    });
+    AxisDescription {
+        attribute,
+        input_quantity: arg(b, 1),
+        conversion_reference: arg(b, 2),
+        max_axis_points,
+        lower_limit,
+        upper_limit,
+        axis_pts_ref: axis_pts_ref_item.map(|i| i.values[0].clone()),
+        curve_axis_ref: curve_ref_item.map(|i| i.values[0].clone()),
+        byte_order: text_item("BYTE_ORDER"),
+        deposit: text_item("DEPOSIT"),
+        format: text_item("FORMAT"),
+        phys_unit: text_item("PHYS_UNIT"),
+        monotony: text_item("MONOTONY"),
+        read_only: first_item(&b.items, "READ_ONLY").is_some(),
+        fix_axis_par,
+        fix_axis_par_dist,
+        fix_axis_par_list,
+        positional_arguments: b.args.iter().map(|t| t.text.clone()).collect(),
+        argument_locations: b.args.iter().map(Token::loc).collect(),
+        conversion_reference_source: arg_loc(b, 2),
+        max_axis_points_source: arg_loc(b, 3),
+        axis_pts_ref_source: axis_pts_ref_item.map(|i| value_loc(i, 0)),
+        curve_axis_ref_source: curve_ref_item.map(|i| value_loc(i, 0)),
+        extra: b.items.clone(),
+        raw_blocks: child_raw_blocks(b, store),
+        raw_block: raw_block(b),
+        source: b.keyword.loc(),
+    }
+}
+fn record_layout_elements(b: &Block, ds: &mut Vec<Diagnostic>) -> Vec<RecordLayoutElement> {
+    let mut out = vec![];
+    for item in &b.items {
+        let Some(shape) = record_layout_shape(&item.keyword) else {
+            continue;
+        };
+        if item.values.len() < shape.min_args() {
+            diagnostic(
+                ds,
+                Severity::Error,
+                format!("{} is incomplete", item.keyword),
+                item_loc(item),
+            );
+        }
+        let text = |n: usize| item.values.get(n).cloned();
+        let number = |n: usize, ds: &mut Vec<Diagnostic>| {
+            item.values
+                .get(n)
+                .and_then(|t| u32_at(t, value_loc(item, n), ds))
+        };
+        let mut e = RecordLayoutElement {
+            keyword: item.keyword.clone(),
+            position: None,
+            data_type: None,
+            index_mode: None,
+            index_increment: None,
+            address_type: None,
+            max_rescale_pairs: None,
+            fixed_axis_points: None,
+            arguments: item.values.clone(),
+            argument_locations: item.value_locations.clone(),
+            source: item_loc(item),
+        };
+        if shape == LayoutShape::FixedCount {
+            e.fixed_axis_points = number(0, ds);
+        } else {
+            e.position = number(0, ds);
+            e.data_type = text(1);
+        }
+        match shape {
+            LayoutShape::Fnc => {
+                e.index_mode = text(2);
+                e.address_type = text(3);
+            }
+            LayoutShape::AxisPts => {
+                e.index_increment = text(2);
+                e.address_type = text(3);
+            }
+            LayoutShape::Rescale => {
+                e.max_rescale_pairs = number(2, ds);
+                e.index_increment = text(3);
+                e.address_type = text(4);
+            }
+            LayoutShape::PositionType | LayoutShape::Reserved | LayoutShape::FixedCount => {}
+        }
+        out.push(e);
+    }
+    out
+}
 fn finite_float_arg(b: &Block, n: usize, ds: &mut Vec<Diagnostic>) {
     if let Some(token) = b.args.get(n) {
         match token.text.parse::<f64>() {
@@ -955,8 +1434,10 @@ fn module(
             "RECORD_LAYOUT" => {
                 diagnose_uninterpreted_items(c, ds);
                 diagnose_uninterpreted_children(c, ds);
+                incomplete(c, 1, "RECORD_LAYOUT", ds);
                 m.record_layouts.push(RecordLayout {
                     name: arg(c, 0).unwrap_or_default(),
+                    elements: record_layout_elements(c, ds),
                     extra: c.items.clone(),
                     raw_blocks: child_raw_blocks(c, store),
                     raw_block: raw_block(c),
@@ -980,10 +1461,12 @@ fn characteristic(b: &Block, ds: &mut Vec<Diagnostic>, store: &[RawBlock]) -> Ch
     let mut dimensions = vec![];
     let mut axis_references = vec![];
     let mut axis_reference_sources = vec![];
+    let mut axis_descriptions = vec![];
     let raw_block = raw_block(b);
     let raw_blocks = child_raw_blocks(b, store);
     for c in children(b) {
         if c.keyword.text == "AXIS_DESCR" {
+            axis_descriptions.push(axis_description(c, ds, store));
             if let Some(item) = c.items.iter().find(|item| item.keyword == "AXIS_PTS_REF")
                 && let Some(value) = item.values.first()
             {
@@ -1018,6 +1501,7 @@ fn characteristic(b: &Block, ds: &mut Vec<Diagnostic>, store: &[RawBlock]) -> Ch
         dimensions,
         axis_references,
         axis_reference_sources,
+        axis_descriptions,
         extra: b.items.clone(),
         raw_blocks,
         raw_block,
@@ -1034,9 +1518,9 @@ fn axis(
 ) -> AxisPoints {
     incomplete(b, 10, "AXIS_PTS", ds);
     diagnose_uninterpreted_items(b, ds);
-    for index in [5, 8, 9] {
-        finite_float_arg(b, index, ds);
-    }
+    finite_float_arg(b, 5, ds);
+    let lower_limit = number_arg(b, 8, ds);
+    let upper_limit = number_arg(b, 9, ds);
     let layout_reference_source = arg_loc(b, 4);
     let conversion_reference_source = arg_loc(b, 6);
     let raw_block = raw_block(b);
@@ -1051,6 +1535,10 @@ fn axis(
         layout_reference: arg(b, 4),
         conversion_reference: arg(b, 6),
         max_axis_points: u32_arg(b, 7, ds),
+        input_quantity: arg(b, 3),
+        lower_limit,
+        upper_limit,
+        phys_unit: value(&b.items, "PHYS_UNIT"),
         extra: b.items.clone(),
         raw_blocks,
         raw_block,
@@ -1168,6 +1656,8 @@ fn validate(p: &Project, ds: &mut Vec<Diagnostic>) {
         let conversions: HashSet<_> = m.compu_methods.iter().map(|x| x.name.as_str()).collect();
         let layouts: HashSet<_> = m.record_layouts.iter().map(|x| x.name.as_str()).collect();
         let axes: HashSet<_> = m.axis_points.iter().map(|x| x.name.as_str()).collect();
+        let characteristics: HashSet<_> =
+            m.characteristics.iter().map(|x| x.name.as_str()).collect();
         for c in &m.characteristics {
             reference(
                 &c.conversion_reference,
@@ -1187,6 +1677,30 @@ fn validate(p: &Project, ds: &mut Vec<Diagnostic>) {
                 &["NO_RECORD_LAYOUT"],
                 ds,
             );
+            for d in &c.axis_descriptions {
+                reference(
+                    &d.conversion_reference,
+                    d.conversion_reference_source,
+                    &conversions,
+                    "conversion",
+                    &c.name,
+                    &["NO_COMPU_METHOD"],
+                    ds,
+                );
+                if let Some(target) = &d.curve_axis_ref
+                    && !characteristics.contains(target.as_str())
+                {
+                    diagnostic(
+                        ds,
+                        Severity::Error,
+                        format!(
+                            "CHARACTERISTIC `{}` references missing CURVE_AXIS_REF `{target}`",
+                            c.name
+                        ),
+                        d.curve_axis_ref_source.unwrap_or(d.source),
+                    )
+                }
+            }
             for (a, source) in c.axis_references.iter().zip(&c.axis_reference_sources) {
                 if !axes.contains(a.as_str()) {
                     diagnostic(
