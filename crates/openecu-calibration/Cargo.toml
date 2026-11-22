@@ -5,5 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+openecu-definitions = { path = "../openecu-definitions" }
+openecu-firmware = { path = "../openecu-firmware" }
 serde.workspace = true
 thiserror.workspace = true

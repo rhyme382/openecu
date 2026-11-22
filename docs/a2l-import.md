@@ -1,5 +1,79 @@
 # Import A2L en lecture seule (T002-A)
 
+## Extension T002-B : lecture de calibration BIN
+
+`openecu-calibration` adapte une `CHARACTERISTIC` A2L vers une
+`CalibrationDefinition` uniquement lorsque les métadonnées nécessaires sont
+présentes : adresse ECU, `RECORD_LAYOUT` référencé avec `FNC_VALUES`, ordre des
+octets explicite dans la caractéristique ou `MOD_COMMON`, et `COMPU_METHOD`
+référencé. Les types A2L `UBYTE`, `SBYTE`, `UWORD`, `SWORD`, `ULONG` et
+`SLONG` correspondent respectivement aux lectures U8, S8, U16, S16, U32 et
+S32. `MSB_FIRST` est traité big-endian et `MSB_LAST` little-endian.
+
+Seule la conversion `IDENTICAL` est exécutable ; toute autre conversion est
+rejetée par une erreur explicite, jamais approximée. Les valeurs lues gardent
+séparément la valeur brute, la valeur physique, l’unité et la provenance
+(`ecu_address`, offset BIN, longueur). Les matrices ont des dimensions et une
+disposition `RowMajor` explicites.
+
+### Mapping mémoire multi-segments
+
+Le mapping adresse ECU → offset BIN est fourni séparément par l’appelant sous
+forme d’`EcuAddressMap`, un ensemble immuable de `MemoryRegion`
+(`ecu_start`, `length`, `bin_offset`). Construction validée : région non vide,
+aucun débordement de l’espace d’adresses ECU (`u64`) ni des offsets BIN,
+au moins une région, aucun chevauchement ni côté ECU ni côté BIN (les régions
+adjacentes sont permises, l’ordre de saisie est libre). Une lecture doit
+tenir **entièrement dans une seule région** : une adresse hors région (trou)
+donne `AddressOutsideMap`, une plage qui dépasse la fin de sa région (même vers
+une région adjacente) donne `RangeCrossesRegion`. `check_fits_image(len)`
+vérifie que toutes les régions tiennent dans une image donnée.
+
+### Lecture A2L : ce qui est accepté
+
+- Types de caractéristique : `VALUE` (scalaire) et `VAL_BLK` uniquement.
+- `RECORD_LAYOUT` : `FNC_VALUES` unique, seul élément de données, à la
+  position ASAP2 `1` (position 0, ≥ 2 ou illisible → `UnsupportedA2lLayout` ;
+  position absente → `MissingA2lMetadata`). Seule la position 1 démontre que
+  les données commencent à l’adresse de la caractéristique.
+  `ALIGNMENT_BYTE/WORD/LONG/INT64/FLOAT16_IEEE/FLOAT32_IEEE/FLOAT64_IEEE` : une
+  valeur puissance de 2, une seule fois par mot-clé. L’alignement du type de
+  `FNC_VALUES` doit diviser l’adresse, sinon rejet ; il ne modifie jamais les
+  offsets (élément unique à l’offset 0, tableau compact, aucun remplissage
+  entre éléments). Mot-clé inconnu, valeur invalide ou doublon → rejet.
+  Limite : l’alignement du début d’enregistrement n’est vérifié que sur
+  l’adresse ECU déclarée ; aucun élément de remplissage n’est modélisé. Mode d’index `ROW_DIR` (seul justificatif de
+  `RowMajor`) et type d’adresse `DIRECT`. `COLUMN_DIR`, `ALTERNATE_*`,
+  `PBYTE/PWORD/PLONG`, ou tout autre élément (`AXIS_PTS_*`, `NO_AXIS_PTS_*`…)
+  → `UnsupportedA2lLayout`. Mode d’index ou type d’adresse absent →
+  `MissingA2lMetadata`.
+- Dimensions d’un `VAL_BLK` : `MATRIX_DIM` ou `NUMBER` (absence → erreur). Seuls
+  les blocs à une dimension effective sont acceptés ; plusieurs dimensions
+  > 1 sont refusées car l’ordre de stockage n’est pas certain.
+- Avant toute allocation, `read_matrix` calcule la taille totale en octets avec
+  arithmétique contrôlée, la valide contre la région et l’image, et le nombre
+  d’éléments est plafonné à `MAX_MATRIX_ELEMENTS` (1 048 576, erreur
+  `MatrixTooLarge`).
+
+## Limitations restantes (T002-B)
+
+- Axes : `CURVE`, `MAP`, `CUBOID`, `CUBE_4/5`, `AXIS_PTS` partagés, `AXIS_DESCR`
+  → `UnsupportedA2lCharacteristicType`. L’importeur ne conserve ni les
+  positions des éléments du `RECORD_LAYOUT` ni les types d’axes, donc aucun axe
+  n’est reconstruit (jamais deviné). `Axis`/`CalibrationMap` restent des
+  modèles construits à la main.
+- Matrices A2L multi-dimensionnelles et `COLUMN_DIR` non pris en charge.
+- Seule la conversion `IDENTICAL` ; `LINEAR`, `RAT_FUNC`, `TAB_*` rejetées.
+- Types A2L 64 bits et flottants (`FLOAT32/64_IEEE`, `UINT64`) non pris en
+  charge.
+- Pas de `BIT_MASK`, `ASCII`, pas de checksums, pas de gestion d’un `SYMBOL_LINK`
+  ni de pages/segments (`MEMORY_SEGMENT`) A2L : le mapping est fourni à la main.
+- Un bloc ne peut pas traverser deux régions, même adjacentes.
+
+Cette extension reste en mémoire et en lecture seule : elle ne change pas le
+format `.oedef` v1, ne modifie pas les octets de firmware et ne communique avec
+aucun ECU.
+
 ## Périmètre
 
 `openecu-definitions` fournit `parse_a2l(&str)` et `parse_a2l_file(path)`. Le
