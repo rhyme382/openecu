@@ -21,4 +21,4 @@ Open-source ECU calibration and diagnostic platform.
 
 ## Status
 
-Initial project structure.
+T001 workspace foundation implemented. See [architecture](docs/architecture.md) and the [.oedef format](docs/oedef-format.md).

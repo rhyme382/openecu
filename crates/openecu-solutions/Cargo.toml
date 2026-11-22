@@ -1,0 +1,10 @@
+[package]
+name = "openecu-solutions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+openecu-core = { path = "../openecu-core" }
+serde.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,21 @@
+[workspace]
+members = [
+    "crates/openecu-core",
+    "crates/openecu-definitions",
+    "crates/openecu-calibration",
+    "crates/openecu-firmware",
+    "crates/openecu-solutions",
+    "crates/openecu-communication",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/openecu/openecu"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
