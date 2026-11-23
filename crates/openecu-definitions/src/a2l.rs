@@ -1101,13 +1101,33 @@ fn first_item<'a>(items: &'a [RawItem], key: &str) -> Option<&'a RawItem> {
 }
 /// Three-value `FIX_AXIS_PAR*` item: signed, signed, unsigned (u32).
 fn fix_triple(items: &[RawItem], key: &str, ds: &mut Vec<Diagnostic>) -> Option<(i64, i64, u32)> {
-    let item = first_item(items, key)?;
+    let declarations: Vec<_> = items.iter().filter(|item| item.keyword == key).collect();
+    let item = declarations.first().copied()?;
+    if declarations.len() > 1 {
+        for duplicate in declarations.iter().skip(1) {
+            diagnostic(
+                ds,
+                Severity::Error,
+                format!("duplicate {key} declaration is ambiguous"),
+                item_loc(duplicate),
+            );
+        }
+    }
     if item.values.len() < 3 {
         diagnostic(
             ds,
             Severity::Error,
             format!("{key} is incomplete"),
             item_loc(item),
+        );
+        return None;
+    }
+    if item.values.len() > 3 {
+        diagnostic(
+            ds,
+            Severity::Error,
+            format!("{key} has extra parameters; expected exactly three"),
+            value_loc(item, 3),
         );
         return None;
     }
@@ -1167,7 +1187,20 @@ fn axis_description(b: &Block, ds: &mut Vec<Diagnostic>, store: &[RawBlock]) -> 
             number_of_points,
         },
     );
-    let fix_axis_par_list = first_item(&b.items, "FIX_AXIS_PAR_LIST").and_then(|item| {
+    let fix_axis_par_list_items: Vec<_> = b
+        .items
+        .iter()
+        .filter(|item| item.keyword == "FIX_AXIS_PAR_LIST")
+        .collect();
+    for duplicate in fix_axis_par_list_items.iter().skip(1) {
+        diagnostic(
+            ds,
+            Severity::Error,
+            "duplicate FIX_AXIS_PAR_LIST declaration is ambiguous",
+            item_loc(duplicate),
+        );
+    }
+    let fix_axis_par_list = fix_axis_par_list_items.first().copied().and_then(|item| {
         if item.values.is_empty() {
             diagnostic(
                 ds,

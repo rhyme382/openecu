@@ -152,6 +152,43 @@ fn fix_axis_parameters_are_typed_and_absent_ones_stay_none() {
 }
 
 #[test]
+fn duplicate_fix_axis_parameter_declarations_are_errors_and_preserved() {
+    let d = with_characteristic(
+        "/begin AXIS_DESCR FIX_AXIS NO_INPUT_QUANTITY cm 4 0 3\n FIX_AXIS_PAR 0 1 4\n FIX_AXIS_PAR 1 1 4\n FIX_AXIS_PAR_DIST 0 1 4\n FIX_AXIS_PAR_DIST 1 1 4\n/end AXIS_DESCR",
+    );
+    assert!(d.diagnostics.iter().any(|x| {
+        x.severity == Severity::Error && x.message.contains("duplicate FIX_AXIS_PAR")
+    }));
+    assert!(d.diagnostics.iter().any(|x| {
+        x.severity == Severity::Error && x.message.contains("duplicate FIX_AXIS_PAR_DIST")
+    }));
+    let axis = &d.project.modules[0].characteristics[0].axis_descriptions[0];
+    assert_eq!(
+        d.raw_block(axis.raw_block)
+            .unwrap()
+            .elements
+            .iter()
+            .filter(|e| matches!(e, openecu_definitions::RawElement::Item(i) if i.keyword == "FIX_AXIS_PAR"))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn fix_axis_parameter_arity_must_be_exactly_three() {
+    let d = with_characteristic(
+        "/begin AXIS_DESCR FIX_AXIS NO_INPUT_QUANTITY cm 4 0 3\n FIX_AXIS_PAR 0 1\n FIX_AXIS_PAR_DIST 0 1 4 99\n/end AXIS_DESCR",
+    );
+    assert!(d.diagnostics.iter().any(|x| {
+        x.severity == Severity::Error && x.message.contains("FIX_AXIS_PAR is incomplete")
+    }));
+    assert!(d.diagnostics.iter().any(|x| {
+        x.severity == Severity::Error
+            && x.message.contains("FIX_AXIS_PAR_DIST has extra parameters")
+    }));
+}
+
+#[test]
 fn fix_axis_without_parameters_does_not_invent_values() {
     let d = with_characteristic(
         "/begin AXIS_DESCR FIX_AXIS NO_INPUT_QUANTITY cm 4 0 3 /end AXIS_DESCR",

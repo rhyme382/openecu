@@ -3,13 +3,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 pub mod a2l;
+pub mod fixed_axis;
 pub mod record_layout;
 pub use a2l::{
     A2lDocument, A2lImportError, Diagnostic, RawBlock, RawBlockId, RawElement, RawItem, Severity,
     SourceLocation, parse_a2l, parse_a2l_file,
 };
 pub use a2l::{
-    A2lNumber, AxisAttribute, AxisDescription, FixAxisPar, FixAxisParDist, RecordLayoutElement,
+    A2lNumber, AxisAttribute, AxisDescription, CompuMethod, FixAxisPar, FixAxisParDist,
+    RecordLayoutElement,
 };
 pub const OEDF_V1: &str = "1.0";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

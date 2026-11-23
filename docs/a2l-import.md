@@ -346,3 +346,47 @@ ni axe ni `CURVE`/`MAP`, et ne modifie ni l'importeur, ni `.oedef` v1, ni
 - Les alignements naturels et les positions contiguës sont des hypothèses
   conservatrices de cette tranche, pas des règles ASAP2 vérifiées dans le texte
   normatif. Aucun remplissage n'est ajouté automatiquement.
+
+## Extension T002-C2.2 : calcul des axes FIX_AXIS
+
+Le module `openecu_definitions::fixed_axis` calcule uniquement les valeurs
+décrites par `FIX_AXIS_PAR` et `FIX_AXIS_PAR_DIST`. Il ne lit ni BIN ni ECU et
+ne décode pas les caractéristiques `CURVE` ou `MAP`.
+
+Les formules calculées sont, respectivement, `offset + index * 2^shift` et
+`offset + index * distance`. Les résultats sont toujours conservés dans le
+domaine brut (`raw`). Une valeur `physical` n'est produite que lorsqu'une
+`CompuMethod` nommée par l'axe a été fournie par l'appelant et que son type est
+explicitement `IDENTICAL`; aucune conversion n'est déduite d'une unité ou d'un
+nom. Une référence absente est donc compatible avec un résultat brut, tandis
+qu'une référence inconnue est rejetée. La méthode, les trois paramètres
+importés, les indices et les références de conversion disponibles restent
+dans la provenance ou dans les structures A2L brutes.
+
+Avant allocation, le calcul vérifie la présence et la non-nullité de la
+capacité, `MAX_AXIS_PTS`, le produit contrôlé des dimensions et leur égalité
+avec le nombre de points. Le plafond conservateur actuel est de 1 048 576
+points. Les shifts sont limités à l'exposant fini représentable par `f64`
+(-1074..=1023), mais cette borne ne promet pas l'acceptation de chaque shift :
+le résultat doit encore être fini et démontrable. Les puissances de deux sont
+construites sans `powi`/`powf` non contrôlé. Les entiers sont convertis après
+vérification de leur exactitude binaire ; une valeur comme `2^53 + 1` est
+rejetée avec une erreur d'inexactitude, tandis que `2^53` et les valeurs
+négatives exactes sont acceptés. Les dépassements, NaN et infinis sont rejetés.
+
+`FIX_AXIS_PAR_DIST` effectue d'abord une addition et une multiplication
+signées contrôlées et vérifie les bornes `i64` dans les deux directions. Les
+distances négatives et nulles sont valides lorsque le résultat reste démontré.
+Les déclarations `FIX_AXIS_PAR` et `FIX_AXIS_PAR_DIST` exigent exactement
+trois paramètres ; une déclaration incomplète, trop longue ou répétée donne
+un diagnostic d'erreur. Chaque occurrence reste néanmoins conservée dans le
+bloc brut source : le calcul ne choisit pas silencieusement une répétition.
+Ces règles sont une politique conservatrice de cette tranche, pas une règle
+normative ASAP2 supplémentaire. Les limites déclarées sont vérifiées dans le
+domaine des valeurs calculées.
+
+Les règles de cardinalité des paramètres, le choix de `i64/i64/u32` pour les
+triplets importés et le plafond de points sont des hypothèses prudentes de
+cette tranche, issues du modèle existant et non revérifiées contre le texte
+normatif ASAP2. `FIX_AXIS_PAR_LIST`, les attributs non `FIX_AXIS` et les
+paramètres contradictoires sont rejetés explicitement.
