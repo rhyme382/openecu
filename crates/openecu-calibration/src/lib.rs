@@ -5,6 +5,10 @@ use openecu_firmware::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+mod axis;
+pub use axis::{
+    AxisReconstructionError, ReconstructedAxis, reconstruct_com_axis, reconstruct_std_axis,
+};
 #[derive(Debug, Error, PartialEq)]
 pub enum CalibrationError {
     #[error("axis `{axis}` is empty")]

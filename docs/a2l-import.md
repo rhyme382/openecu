@@ -57,11 +57,38 @@ vérifie que toutes les régions tiennent dans une image donnée.
 
 ## Limitations restantes (T002-B)
 
-- Axes : `CURVE`, `MAP`, `CUBOID`, `CUBE_4/5`, `AXIS_PTS` partagés, `AXIS_DESCR`
-  → `UnsupportedA2lCharacteristicType`. L’importeur ne conserve ni les
-  positions des éléments du `RECORD_LAYOUT` ni les types d’axes, donc aucun axe
-  n’est reconstruit (jamais deviné). `Axis`/`CalibrationMap` restent des
-  modèles construits à la main.
+## Extension T002-C2.3 : reconstruction des axes depuis BIN
+
+`openecu-calibration` expose `reconstruct_std_axis` et
+`reconstruct_com_axis`, qui renvoient un `ReconstructedAxis` composé de
+`CalibrationValue` (brut, physique, unité et provenance BIN). Le chemin
+`STD_AXIS` utilise l'adresse et le `RECORD_LAYOUT` de la `CHARACTERISTIC`.
+Le chemin `COM_AXIS` exige un `AXIS_PTS_REF` unique, résout l'`AXIS_PTS`
+correspondant dans le module et utilise son adresse, son layout et sa
+conversion. Une conversion doit être résolue explicitement vers un
+`COMPU_METHOD IDENTICAL`; aucune autre conversion ne produit de valeur
+physique.
+
+Le `RecordPlan` est construit avec le contexte `MOD_COMMON`. Le compteur
+`NO_AXIS_PTS_X/Y/Z/4/5` est lu dans le BIN avec l'endianness déclarée (ou
+`FIX_NO_AXIS_PTS_*` est utilisé), puis le placement `AXIS_PTS_*` est résolu.
+Avant toute allocation ou lecture de points, sont vérifiés : présence et
+unicité des références, type entier supporté, endianness, alignement de base,
+positions et modes `DIRECT`/`INDEX_INCR` du layout, capacité
+`MAX_AXIS_POINTS`, compteur non nul, limite de 1 048 576 points, bornes de
+`EcuAddressMap` et taille du BIN. Les layouts nécessitant un padding ou une
+interprétation non prouvée sont rejetés. Les types 64 bits/flottants, les
+références dupliquées et les conversions divergentes entre `AXIS_DESCR` et
+`AXIS_PTS` sont refusés.
+
+Cette tranche ne décode toujours ni les valeurs de `CURVE`/`MAP`, ni les
+conversions physiques non `IDENTICAL`, et n'effectue aucun accès ECU ou flash.
+
+- Axes non couverts : `CURVE`, `MAP`, `CUBOID`, `CUBE_4/5` et les axes
+  `FIX_AXIS`, `RES_AXIS` ou `CURVE_AXIS`. `STD_AXIS` et `COM_AXIS` sont
+  reconstruits uniquement par les API T002-C2.3 décrites ci-dessus ;
+  `Axis`/`CalibrationMap` restent des modèles construits à la main pour les
+  autres usages.
 - Matrices A2L multi-dimensionnelles et `COLUMN_DIR` non pris en charge.
 - Seule la conversion `IDENTICAL` ; `LINEAR`, `RAT_FUNC`, `TAB_*` rejetées.
 - Types A2L 64 bits et flottants (`FLOAT32/64_IEEE`, `UINT64`) non pris en
