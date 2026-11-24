@@ -235,7 +235,25 @@ fn read_axis(
             maximum: MAX_AXIS_POINTS,
         });
     }
-    let resolved = plan.resolve(&PointCounts::new().with_axis(record_axis, count))?;
+    // CURVE/MAP decoding may share this layout with FNC_VALUES. Axis
+    // reconstruction only needs placements up to the axis; a zero FNC count
+    // keeps that independent of the later matrix cardinality. Callers must
+    // still reject layouts whose FNC_VALUES precedes an axis when that would
+    // make the offset depend on the unknown matrix size.
+    let mut resolve_counts = prior_counts(
+        &plan,
+        record_axis,
+        address,
+        name,
+        byte_order,
+        image,
+        mapping,
+    )?
+    .with_axis(record_axis, count);
+    for later in later_axes(record_axis) {
+        resolve_counts = resolve_counts.with_axis(*later, 0);
+    }
+    let resolved = plan.resolve(&resolve_counts)?;
     let placement = resolved
         .placement(ElementKind::AxisPts(record_axis))
         .ok_or_else(|| missing(name, "AXIS_PTS record element"))?;
@@ -303,16 +321,20 @@ fn point_count(
     if let Some(fixed) = plan.fixed_axis_points(axis) {
         return Ok(u64::from(fixed));
     }
+    let counts = prior_counts(plan, axis, address, name, byte_order, image, mapping)?;
     let element = plan
         .element(ElementKind::NoAxisPts(axis))
         .ok_or_else(|| missing(name, "NO_AXIS_PTS"))?;
-    let offset =
-        element
-            .static_offset
-            .ok_or_else(|| AxisReconstructionError::AmbiguousMetadata {
-                axis: name.into(),
-                reason: "NO_AXIS_PTS is after a variable-size element".into(),
-            })?;
+    let offset = match element.static_offset {
+        Some(offset) => offset,
+        None => {
+            plan.resolve_prefix(&counts)?
+                .iter()
+                .find(|placement| placement.kind == ElementKind::NoAxisPts(axis))
+                .ok_or_else(|| missing(name, "NO_AXIS_PTS"))?
+                .offset
+        }
+    };
     let primitive = primitive_type(name, element.data_type)?;
     let ecu_address = address.checked_add(offset).ok_or(AxisError::Overflow {
         operation: "axis count address",
@@ -329,6 +351,82 @@ fn point_count(
         }
     };
     Ok(count)
+}
+
+fn prior_counts(
+    plan: &RecordPlan,
+    axis: RecordAxis,
+    address: u64,
+    name: &str,
+    byte_order: ByteOrder,
+    image: &FirmwareImage,
+    mapping: &EcuAddressMap,
+) -> Result<PointCounts, AxisReconstructionError> {
+    let mut counts = PointCounts::new().with_fnc_values(0);
+    for prior in prior_axes(axis) {
+        let value = if let Some(fixed) = plan.fixed_axis_points(*prior) {
+            u64::from(fixed)
+        } else {
+            let placement = plan
+                .resolve_prefix(&counts)?
+                .into_iter()
+                .find(|placement| placement.kind == ElementKind::NoAxisPts(*prior))
+                .ok_or_else(|| missing(name, "NO_AXIS_PTS"))?;
+            let primitive = primitive_type(
+                name,
+                plan.element(ElementKind::NoAxisPts(*prior))
+                    .unwrap()
+                    .data_type,
+            )?;
+            let ecu_address = address
+                .checked_add(placement.offset)
+                .ok_or(AxisError::Overflow {
+                    operation: "axis count address",
+                })?;
+            match image.read_primitive(mapping, ecu_address, primitive, byte_order)? {
+                openecu_firmware::PrimitiveValue::Unsigned(value) => u64::from(value),
+                openecu_firmware::PrimitiveValue::Signed(value) if value >= 0 => value as u64,
+                openecu_firmware::PrimitiveValue::Signed(_) => {
+                    return Err(AxisReconstructionError::InvalidPointCount {
+                        axis: name.into(),
+                        count: 0,
+                    });
+                }
+            }
+        };
+        counts = counts.with_axis(*prior, value);
+    }
+    Ok(counts)
+}
+
+fn prior_axes(axis: RecordAxis) -> &'static [RecordAxis] {
+    match axis {
+        RecordAxis::X => &[],
+        RecordAxis::Y => &[RecordAxis::X],
+        RecordAxis::Z => &[RecordAxis::X, RecordAxis::Y],
+        RecordAxis::Fourth => &[RecordAxis::X, RecordAxis::Y, RecordAxis::Z],
+        RecordAxis::Fifth => &[
+            RecordAxis::X,
+            RecordAxis::Y,
+            RecordAxis::Z,
+            RecordAxis::Fourth,
+        ],
+    }
+}
+
+fn later_axes(axis: RecordAxis) -> &'static [RecordAxis] {
+    match axis {
+        RecordAxis::X => &[
+            RecordAxis::Y,
+            RecordAxis::Z,
+            RecordAxis::Fourth,
+            RecordAxis::Fifth,
+        ],
+        RecordAxis::Y => &[RecordAxis::Z, RecordAxis::Fourth, RecordAxis::Fifth],
+        RecordAxis::Z => &[RecordAxis::Fourth, RecordAxis::Fifth],
+        RecordAxis::Fourth => &[RecordAxis::Fifth],
+        RecordAxis::Fifth => &[],
+    }
 }
 
 fn find_layout<'a>(

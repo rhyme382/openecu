@@ -6,8 +6,13 @@ use openecu_firmware::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 mod axis;
+mod curve_map;
 pub use axis::{
     AxisReconstructionError, ReconstructedAxis, reconstruct_com_axis, reconstruct_std_axis,
+};
+pub use curve_map::{
+    AxisRawValue, AxisValue, AxisValueSource, CharacteristicKind, DecodedAxis,
+    DecodedCharacteristic, decode_characteristic,
 };
 #[derive(Debug, Error, PartialEq)]
 pub enum CalibrationError {
@@ -57,6 +62,12 @@ pub enum CalibrationError {
         characteristic: String,
         reason: String,
     },
+    #[error(transparent)]
+    Axis(#[from] AxisReconstructionError),
+    #[error(transparent)]
+    FixedAxis(#[from] openecu_definitions::fixed_axis::FixedAxisError),
+    #[error(transparent)]
+    RecordLayout(#[from] openecu_definitions::record_layout::AxisError),
     #[error(transparent)]
     Firmware(#[from] FirmwareError),
 }

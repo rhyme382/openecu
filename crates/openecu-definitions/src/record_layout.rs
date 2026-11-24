@@ -588,6 +588,25 @@ impl RecordPlan {
         })
     }
 
+    /// Resolves the statically known prefix of a record. This is used to read
+    /// a later `NO_AXIS_PTS_*` counter before the count-dependent elements
+    /// that follow it are known.
+    pub fn resolve_prefix(&self, counts: &PointCounts) -> Result<Vec<Placement>, AxisError> {
+        let (offsets, _) = self.walk(counts, false)?;
+        let mut placements = Vec::new();
+        for (element, placement) in self.elements.iter().zip(offsets) {
+            let Some((offset, Some(size))) = placement else {
+                break;
+            };
+            placements.push(Placement {
+                kind: element.kind,
+                offset,
+                size,
+            });
+        }
+        Ok(placements)
+    }
+
     fn count_for(
         &self,
         source: CountSource,

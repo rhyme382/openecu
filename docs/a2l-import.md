@@ -101,6 +101,40 @@ Cette extension reste en mémoire et en lecture seule : elle ne change pas le
 format `.oedef` v1, ne modifie pas les octets de firmware et ne communique avec
 aucun ECU.
 
+## Extension T002-C3 : décodage CURVE / MAP
+
+`openecu_calibration::decode_characteristic` décode une `CHARACTERISTIC` de
+type `CURVE` ou `MAP` à partir d'une `FirmwareImage` et d'une `EcuAddressMap`.
+Le résultat contient le nom, le type, les axes, les valeurs brutes et
+physiques, les dimensions, l'unité disponible, le layout et la provenance de
+chaque lecture BIN, ainsi que les références `COMPU_METHOD` conservées pour la
+caractéristique et les axes. Les conversions physiques ne sont produites que pour une
+`COMPU_METHOD IDENTICAL` résolue ; les autres références sont rejetées.
+
+Pour une `CURVE`, l'axe X est reconstruit par `STD_AXIS`, `COM_AXIS` ou
+`FIX_AXIS`, puis les valeurs sont associées dans l'ordre `[x]`. Pour une
+`MAP`, les deux axes sont reconstruits et la matrice logique est `[y, x]` ;
+`z_at(y, x)` indexe donc la valeur correspondante. `FIX_AXIS` est signalé
+comme généré : ses valeurs n'ont aucune provenance BIN et ne sont jamais
+présentées comme lues du firmware.
+
+Le décodeur accepte uniquement `FNC_VALUES` en `ROW_DIR`, `DIRECT`, avec un
+type entier supporté (`UBYTE`, `SBYTE`, `UWORD`, `SWORD`, `ULONG`, `SLONG`).
+`COLUMN_DIR`, les layouts où `FNC_VALUES` précède un axe variable, les
+éléments non modélisés, les alignements ambigus, les dimensions vides et plus
+d'un million d'éléments sont rejetés. Les offsets sont calculés par
+`RecordPlan`, contrôlés par `EcuAddressMap` et validés contre la taille BIN
+avant l'allocation du résultat. `MSB_FIRST` et `MSB_LAST` sont respectivement
+big-endian et little-endian.
+
+La disposition mémoire démontrée est donc un enregistrement ASAP2 dont les
+compteurs/axes précèdent `FNC_VALUES`, avec des positions contiguës et des
+alignements déjà validés. Les formats `RES_AXIS`, `CURVE_AXIS`, les axes
+résultants, les types flottants/64 bits, les layouts à padding non démontré et
+les conversions `LINEAR`, `RAT_FUNC` ou `TAB_*` restent hors périmètre. Cette
+restriction est volontaire : aucune orientation de lignes/colonnes ni unité
+absente ne doit être inventée.
+
 ## Périmètre
 
 `openecu-definitions` fournit `parse_a2l(&str)` et `parse_a2l_file(path)`. Le
